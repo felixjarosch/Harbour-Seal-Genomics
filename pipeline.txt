@@ -1,0 +1,132 @@
+##################### General Pipeline for Seal WGS Analysis ###############
+############################################################################
+
+#Author: Felix Jarosch (gusjarofe@student.gu.se)
+
+
+#################### Step 1: Pre-processing #################################
+
+#Input:   2 raw fasta files (R1_fastq.gz & R2_fastq.gz) per sample
+#In_dir:  .../original-files
+#Output:  2 clean fasta files per sample
+#Out_dir: .../output/clean_seq
+#tools:   fastp  (https://github.com/OpenGene/fastp)
+
+#Description: Quality control of raw reads (removes low quality sequences) & Trimming of adapters used in sequencing
+
+#Parameters: default (rm sequences with >40% of bases with Phred <15; >=5 uncalled bases)
+
+
+#################### Step 2: Alignment and BAM processing ###################
+
+#Input$1:   2 clean fasta files per sample
+#In_dir$1:  .../output/clean_seq
+#Input$2:   Reference Harbour seal genome (GSC_HSeal_1.0_HiC, https://www.dnazoo.org/assemblies/phoca_vitulina)
+#In_dir$2:  .../original-files
+#Output$1:  .bam file
+#Output$2:  .bam.bai file (Index)
+#Out_dir: .../output/bam
+#tools:     SAMtools (bwa-mem included)
+
+#Description: Aligns cleaned reads with a reference genome and maps them on the chromosome-level. Then converts .sam to .bam, sorts the reads by genomic position and creates an index. + Removal of PCR-Duplicates
+
+#Parameters: default
+
+####Sub-steps####
+#0th: Index reference genome (once)
+#1st: Run alignment loop for each sample
+#2nd: Convert
+#3rd: Sort
+#4th: Index
+#5th: PCR-Duplicate removal
+
+=> 89 FASTQ pairs
+
+################# Step 3: Merge Individuals Data #########################
+
+=> Currently multiple files per individual, need to be merged to one BAM file in the end
+
+
+################# Step 4: Remove problematic Regions #########################
+
+#Input$1:  .bam file
+#In_dir$1: .../output/bam
+#Input$2:  RepeatMasker annotation file
+#In_dir$2: .../original-files
+#Output:   clean.bam file
+#Out_dir:  .../output/bam
+#tools:    bedtools (https://bedtools.readthedocs.io/en/latest/)
+
+#Description: Removes low complexity & interspersed repeat sequence reads (e.g. transposons,telomere...) to avoid ambigous mapping
+
+################# Step 5: BAM stats ###########################################
+
+#Input$1:  clean.bam file
+#In_dir$1: .../output/bam
+#Output:   Genome statistics & coverage txt file
+#Out_dir:  .../output/bam
+
+#Description: Calculate genome-wide statistics and coverage for the final BAM file (actually not important for analysis)
+
+################# Step 5: Genotype calling ####################################
+
+#Input$1:  clean.bam file
+#In_dir$1: .../output/bam
+#Input$2:  Reference genome
+#In_dir$2: .../original-files
+#Output$1: .bcf file
+#Output$2: .bcf.csi (Index) file
+#Out_dir:  .../output/bfc
+#tools:    bcftools (https://github.com/lh3/bfc)
+
+#Description: Genotypes are inferred & indexed based on the mapped reads
+
+#### Sub-steps ####  
+
+##1st: Calling
+#commands:   mpileup | call
+#parameters: -Q30 -q30 (only reads with mapping & base quality scores min 30) 
+
+##2nd: Indexing
+#commands: index
+
+
+################# Step 6: Variant filtering ##################################
+
+#Input:   1 .bcf file per sample
+#In_dir:  .../output/bfc
+#Output:  1 final.vcf file for all samples
+#Out-dir: .../output
+#tools:   bcftools
+
+#Description: Variants are filtered to exclude indels, multiallelic SNPs and low confidence or frequency variants, only leaving high quality biallelic SNPs for downstream analysis
+
+#### Sub-steps ####
+
+##1st: Type filterin (indels & multi-allelic SNPs)
+#parameters: snps (only SNPs) m2 M2 (min and max 2 alleles)
+
+##2nd: Coverage filtering (low confidence)
+#parameters: overall coverage = <9 or = >2x average depth; minor allele coverage = <2
+
+##3rd: Merge (necessary for next step)
+
+##4th: Allele frequency filtering
+#parameters: maf >0.05 (minor allele frequency across samples)
+
+##5th: Convert to vcf for downstream analyses
+
+
+################# Step 7: ROH Analysis ########################################
+
+#Input:   final.vcf file
+#In_dir:  .../output
+#Output:  roh.txt file 
+#Out_dir: .../output
+#tools: bcf tools (roh command)
+
+#Description: Detects runs of homozygosity across the genomes and estimates FROH using a hidden Markov model
+
+#parameters: default
+
+
